@@ -1,4 +1,5 @@
 import { User } from "../models/user.model.js";
+import { sendMail } from "../utils/email/sendEmail.js";
 import ApiError from "../utils/ApiError.js";
 import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
@@ -42,6 +43,13 @@ export const registerUser = asyncHandler(async (req, res) => {
     email: email.trim(),
     avatar: avatarUrl,
     password,
+  });
+
+  // ✅ Send verification email here
+  await sendMail({
+    email: newUser.email,
+    emailType: "VERIFY",
+    userId: newUser._id,
   });
 
   const sanitizedUser = await User.findById(newUser._id).select(
