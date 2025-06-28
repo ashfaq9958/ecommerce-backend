@@ -5,6 +5,7 @@ import ApiResponse from "../utils/ApiResponse.js";
 import asyncHandler from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.config.js";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -214,5 +215,84 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
       );
   } catch (error) {
     throw new ApiError(403, "Invalid or expired refresh token");
+  }
+});
+
+export const verifyEmail = asyncHandler(async (req, res) => {
+  const { token } = req.query;
+
+  if (!token) {
+    throw new ApiError(400, "Verification token is missing.");
+  }
+
+  try {
+    // Step 1: Find user with unexpired token
+    const user = await User.findOne({
+      emailVerificationTokenExpiry: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      throw new ApiError(400, "Token is expired or invalid.");
+    }
+
+    // Step 2: Compare hashed token with token in URL
+    const isValid = await bcrypt.compare(token, user.emailVerificationToken);
+    if (!isValid) {
+      throw new ApiError(400, "Invalid verification token.");
+    }
+
+    // Step 3: Mark email as verified and clear token fields
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationTokenExpiry = undefined;
+
+    await user.save({ validateBeforeSave: false });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, null, "Email verified successfully."));
+  } catch (error) {
+    console.error("Email verification error:", error);
+    throw new ApiError(500, "Something went wrong during email verification.");
+  }
+});
+
+export const resendVerificationEmail = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email || email.trim() === "") {
+    throw new ApiError(400, "Email is required");
+  }
+
+  try {
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    if (!user) {
+      throw new ApiError(404, "User with this email does not exist");
+    }
+
+    if (user.isEmailVerified) {
+      throw new ApiError(400, "Email is already verified");
+    }
+
+    // 📨 Resend verification email
+    await sendMail({
+      email: user.email,
+      emailType: "VERIFY",
+      userId: user._id,
+    });
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          null,
+          "Verification email resent successfully. Please check your inbox."
+        )
+      );
+  } catch (error) {
+    console.error("❌ Error resending verification email:", error);
+    throw new ApiError(500, "Something went wrong while resending the email.");
   }
 });
